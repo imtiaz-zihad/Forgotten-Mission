@@ -1,0 +1,54 @@
+{
+  "apollo11": {
+    "photo": "/img/apollo11.jpg",
+    "photoId": "KSC-as11-44-6549"
+  },
+  "apollo12": {
+    "photo": "/img/apollo12.jpg",
+    "photoId": "as12-48-7121"
+  },
+  "apollo14": {
+    "photo": "/img/apollo14.jpg",
+    "photoId": "as14_66_09232"
+  },
+  "apollo15": {
+    "photo": "/img/apollo15.jpg",
+    "photoId": "as15-88-11866"
+  },
+  "apollo16": {
+    "photo": "/img/apollo16.jpg",
+    "photoId": "PIA23041"
+  },
+  "apollo17": {
+    "photo": "/img/apollo17.jpg",
+    "photoId": "S72-55421"
+  },
+  "viking1": {
+    "photo": "/img/viking1.jpg",
+    "photoId": "PIA10738"
+  },
+  "viking2": {
+    "photo": "/img/viking2.jpg",
+    "photoId": "PIA04023"
+  },
+  "sojourner": {
+    "photo": "/img/sojourner.jpg",
+    "photoId": "PIA11436"
+  },
+  "spirit": {
+    "photo": "/img/spirit.jpg",
+    "photoId": "PIA05040"
+  },
+  "opportunity": {
+    "photo": "/img/opportunity.jpg",
+    "photoId": "PIA20285"
+  },
+  "phoenix": {
+    "photo": "/img/phoenix.jpg",
+    "photoId": "PIA12105"
+  },
+  "mpl": {
+    "photo": "/img/mpl.jpg",
+    "photoId": "PIA04016"
+  }
+}
