@@ -6,6 +6,25 @@ import { objects, MAPS, LIFESPAN, plotLon } from "./data.js";
 
 gsap.registerPlugin(ScrollTrigger);
 const calm = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+const narr = new Audio();
+let soundOn = true, curId = null, blockedId = null;
+const block = (id) => { blockedId = id; window.dispatchEvent(new Event("narr-blocked")); };
+// Fallback when /audio/<id>.mp3 is missing: the browser reads the story aloud (system voice).
+const speak = (id) => {
+  const o = objects.find((x) => x.id === id), ss = window.speechSynthesis;
+  if (!o || !ss) return;
+  ss.cancel();
+  const u = new SpeechSynthesisUtterance(o.story);
+  u.lang = "en-US"; u.rate = 0.95;
+  u.onerror = (e) => e.error === "not-allowed" && block(id);
+  ss.speak(u);
+};
+const playNarration = (id) => { curId = id; if (!soundOn) return; narr.src = `/audio/${id}.mp3`; narr.play().catch((e) => (e.name === "NotAllowedError" ? block(id) : speak(id))); };
+const stopNarration = (id) => { if (curId === id) { curId = null; blockedId = null; narr.pause(); window.speechSynthesis?.cancel(); } };
+const resumeBlocked = () => { const id = blockedId; blockedId = null; if (id && soundOn && curId === id) playNarration(id); };
+const setSound = (on) => { soundOn = on; if (!on) { narr.pause(); window.speechSynthesis?.cancel(); } else if (curId) playNarration(curId); };
+const unlock = () => { narr.src = SILENT; narr.play().catch(() => {}); window.speechSynthesis?.speak(new SpeechSynthesisUtterance("")); };
 const lonTxt = (o) => (o.body === "mars" ? `${o.lon.toFixed(3)}°E` : `${Math.abs(o.lon).toFixed(3)}°${o.lon < 0 ? "W" : "E"}`);
 const latTxt = (o) => `${Math.abs(o.lat).toFixed(3)}°${o.lat < 0 ? "S" : "N"}`;
 
@@ -24,10 +43,14 @@ function Chapter({ o, n, first, open }) {
   const root = useRef();
   const x = (plotLon(o) + 180) / 360, y = (90 - o.lat) / 180;
   useEffect(() => {
-    if (calm()) return;
+    const b = root.current.querySelector(".bubble");
+    if (calm()) { gsap.set(b, { opacity: 1, y: 0 }); return; }
+    const show = () => { gsap.to(b, { opacity: 1, y: 0, duration: 1.4, ease: "power2.out" }); playNarration(o.id); };
+    const hide = () => { gsap.to(b, { opacity: 0, y: 40, duration: 0.4 }); stopNarration(o.id); };
     const ctx = gsap.context(() => {
       gsap.fromTo(".zoom", { scale: 1 }, { scale: 1.25, ease: "none", scrollTrigger: { trigger: root.current, start: "top bottom", end: "bottom top", scrub: true } });
-      gsap.from(".bubble", { opacity: 0, y: 40, duration: 0.8, scrollTrigger: { trigger: root.current, start: "top 55%" } });
+      ScrollTrigger.create({ trigger: ".scene", start: "top 18%", end: "+=70%", pin: window.innerWidth > 800, anticipatePin: 1,
+        onUpdate: (self) => (self.progress > 0.2 ? show() : hide()), onLeave: hide, onLeaveBack: hide });
       if (root.current.querySelector(".meter")) gsap.from(".meter b", { width: 0, duration: 1.4, stagger: 0.4, scrollTrigger: { trigger: ".meter", start: "top 90%" } });
     }, root);
     return () => ctx.revert();
@@ -96,7 +119,7 @@ function Log({ o, close }) {
           <dt>Last contact</dt><dd>{o.last}</dd>
         </dl>
         <p>{o.science}</p>
-        <audio controls src={`/audio/${o.id}.mp3`} onError={(e) => (e.currentTarget.style.display = "none")} />
+        <audio controls onPlay={() => narr.pause()} src={`/audio/${o.id}.mp3`} onError={(e) => (e.currentTarget.style.display = "none")} />
         <p className="cite">Source: <a href={o.src} target="_blank" rel="noreferrer">{o.dataset}</a></p>
         <button onClick={close}>Close and Continue Story</button>
         <button className="alt" onClick={read}>Read this chapter</button>
@@ -107,60 +130,114 @@ function Log({ o, close }) {
 
 function MapExplorer({ open }) {
   const [body, setBody] = useState("moon");
-  const el = useRef(), map = useRef(), layer = useRef(), base = useRef(), pend = useRef(), cur = useRef("moon");
+  const [year, setYear] = useState(2020);
+  const [act, setAct] = useState(null);
+  const el = useRef(), map = useRef(), layer = useRef(), base = useRef(), marks = useRef({}), pend = useRef(), cur = useRef("moon");
+  const list = objects.filter((o) => o.body === body && +o.left.slice(0, 4) <= year);
   const fly = (o) => map.current.flyTo([o.lat, plotLon(o)], 3, { duration: calm() ? 0 : 1.5 });
+  const pick = (o) => { setAct(o.id); fly(o); document.getElementById(`site-${o.id}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }); };
+  const hot = (id, on) => marks.current[id]?.getElement()?.classList.toggle("hot", on);
+  const read = (o) => document.getElementById(`ch-${o.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  useEffect(() => {
+    const m = L.map(el.current, { crs: L.CRS.EPSG4326, zoomSnap: 0.25, maxZoom: 3.5, maxBounds: [[-90, -180], [90, 180]], maxBoundsViscosity: 1 });
+    m.createPane("base").style.zIndex = 250;
+    layer.current = L.layerGroup().addTo(m);
+    m.fitBounds([[-90, -180], [90, 180]]);
+    m.setMinZoom(m.getZoom());
+    m.on("zoomend", () => el.current.classList.toggle("z2", m.getZoom() >= 2));
+    map.current = m;
+    return () => m.remove();
+  }, []);
   useEffect(() => {
     const go = (e) => {
       const o = objects.find((x) => x.id === e.detail);
       el.current.scrollIntoView({ behavior: calm() ? "auto" : "smooth", block: "center" });
-      if (o.body === cur.current) fly(o); else { pend.current = o; setBody(o.body); }
+      setYear(2020);
+      if (o.body === cur.current) pick(o); else { pend.current = o; setBody(o.body); }
     };
     window.addEventListener("flyto", go);
     return () => window.removeEventListener("flyto", go);
   }, []);
   useEffect(() => {
-    const m = L.map(el.current, { crs: L.CRS.EPSG4326, minZoom: 0, maxZoom: 4, zoomSnap: 0.5, maxBounds: [[-90, -180], [90, 180]] }).setView([0, 0], 1);
-    m.createPane("base").style.zIndex = 250;
-    layer.current = L.layerGroup().addTo(m);
-    map.current = m;
-    return () => m.remove();
-  }, []);
-  useEffect(() => {
     base.current?.remove();
     base.current = L.imageOverlay(MAPS[body].url, [[-90, -180], [90, 180]], { pane: "base" }).addTo(map.current);
-    layer.current.clearLayers();
-    objects.filter((o) => o.body === body).forEach((o) =>
-      L.circleMarker([o.lat, plotLon(o)], { radius: 10, color: "#f7e1a0", weight: 2, fillColor: "#ff8a3d", fillOpacity: 0.9 })
-        .bindTooltip(o.name).on("click", () => open(o)).addTo(layer.current));
-    cur.current = body;
-    if (pend.current) { fly(pend.current); pend.current = null; }
+    setAct(null);
   }, [body]);
+  useEffect(() => {
+    layer.current.clearLayers();
+    marks.current = {};
+    list.forEach((o) => {
+      const icon = L.divIcon({ className: "pin2" + (act === o.id ? " on" : ""), iconSize: [40, 40], iconAnchor: [20, 20],
+        html: `<span style="${o.photo ? `background-image:url(${o.photo})` : ""}"></span><em>${o.mission}</em>` });
+      marks.current[o.id] = L.marker([o.lat, plotLon(o)], { icon, title: o.name }).on("click", () => pick(o)).addTo(layer.current);
+    });
+    cur.current = body;
+    if (pend.current) { pick(pend.current); pend.current = null; }
+  }, [body, year, act]);
   return (
     <section className="explore">
       <h2>Explore every site</h2>
       <nav>
         {["moon", "mars"].map((b) => <button key={b} aria-pressed={body === b} onClick={() => setBody(b)}>{b === "moon" ? "Moon" : "Mars"}</button>)}
       </nav>
-      <div className="map" ref={el} />
+      <div className="xwrap">
+        <div className="map" ref={el} />
+        <div className="sitescol">
+          <div className="sites">
+            {list.map((o) => (
+              <div key={o.id} id={`site-${o.id}`} className={"site" + (act === o.id ? " open" : "")} onMouseEnter={() => hot(o.id, true)} onMouseLeave={() => hot(o.id, false)}>
+                <button onClick={() => pick(o)} aria-expanded={act === o.id}>
+                  <span className="thumb" style={o.photo ? { backgroundImage: `url(${o.photo})` } : undefined} />
+                  <b>{o.mission}</b><small>{o.name} · {o.left.slice(0, 4)}</small>
+                </button>
+                {act === o.id && (
+                  <div className="more">
+                    <p>{o.story}</p>
+                    <div><button onClick={() => open(o)}>Mission log</button><button onClick={() => read(o)}>Read chapter</button></div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <label className="years">Left behind by <b>{year}</b>
+        <input type="range" min="1969" max="2020" value={year} onChange={(e) => setYear(+e.target.value)} />
+      </label>
     </section>
   );
 }
 
 export default function App() {
   const [sel, setSel] = useState(null);
+  const [sound, setS] = useState(true);
+  const [hint, setHint] = useState(false);
+  const start = (on) => {
+    if (on) unlock();
+    setSound(on); setS(on);
+    document.getElementById("ch-apollo11")?.scrollIntoView({ behavior: calm() ? "auto" : "smooth" });
+  };
   useEffect(() => {
     const k = (e) => e.key === "Escape" && setSel(null);
     window.addEventListener("keydown", k);
+    const blocked = () => setHint(true);
+    const resume = () => { setHint(false); resumeBlocked(); };
+    window.addEventListener("narr-blocked", blocked);
+    window.addEventListener("pointerup", resume);
+    window.addEventListener("keydown", resume);
     if (!calm()) gsap.from(".finale p", { opacity: 0, y: 30, stagger: 0.6, duration: 1, scrollTrigger: { trigger: ".finale", start: "top 60%" } });
-    return () => window.removeEventListener("keydown", k);
+    return () => { window.removeEventListener("keydown", k); window.removeEventListener("narr-blocked", blocked); window.removeEventListener("pointerup", resume); window.removeEventListener("keydown", resume); };
   }, []);
   return (
     <>
       <Rail />
+      {hint && <div className="hint-toast">🔊 Tap or press any key to hear the narration</div>}
+      <button className="sound" aria-pressed={sound} aria-label={sound ? "Mute narration" : "Play narration"} onClick={() => { if (sound) { setSound(false); setS(false); } else { unlock(); setSound(true); setS(true); } }}>{sound ? "🔊" : "🔇"}</button>
       <section className="hero">
         <h1>Forgotten Missions</h1>
         <p>The machines were left behind. Their stories weren't.</p>
-        <span className="hint">Scroll to begin ↓</span>
+        <div className="start"><button onClick={() => start(true)}>Start with sound 🔊</button><button className="ghost" onClick={() => start(false)}>Start silent</button></div>
+        <span className="hint">or just scroll ↓</span>
       </section>
       {objects.map((o, i) => <Chapter key={o.id} o={o} n={i + 1} first={i === 0 || objects[i - 1].body !== o.body} open={setSel} />)}
       <section className="finale"><p>A story</p><p>The machines were left behind</p><p>Their stories weren't</p></section>
