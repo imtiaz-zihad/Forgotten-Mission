@@ -3,28 +3,19 @@ import L from "leaflet";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { objects, MAPS, LIFESPAN, plotLon } from "./data.js";
+import { LEARN } from "./learn.js";
 
 gsap.registerPlugin(ScrollTrigger);
 const calm = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
 const narr = new Audio();
 let soundOn = true, curId = null, blockedId = null;
-const block = (id) => { blockedId = id; window.dispatchEvent(new Event("narr-blocked")); };
-// Fallback when /audio/<id>.mp3 is missing: the browser reads the story aloud (system voice).
-const speak = (id) => {
-  const o = objects.find((x) => x.id === id), ss = window.speechSynthesis;
-  if (!o || !ss) return;
-  ss.cancel();
-  const u = new SpeechSynthesisUtterance(o.story);
-  u.lang = "en-US"; u.rate = 0.95;
-  u.onerror = (e) => e.error === "not-allowed" && block(id);
-  ss.speak(u);
-};
-const playNarration = (id) => { curId = id; if (!soundOn) return; narr.src = `/audio/${id}.mp3`; narr.play().catch((e) => (e.name === "NotAllowedError" ? block(id) : speak(id))); };
+const block = (id) => { blockedId = id; };
+const playNarration = (id) => { curId = id; if (!soundOn) return; narr.src = `/audio/${id}.mp3`; narr.play().catch(() => block(id)); };
 const stopNarration = (id) => { if (curId === id) { curId = null; blockedId = null; narr.pause(); window.speechSynthesis?.cancel(); } };
 const resumeBlocked = () => { const id = blockedId; blockedId = null; if (id && soundOn && curId === id) playNarration(id); };
 const setSound = (on) => { soundOn = on; if (!on) { narr.pause(); window.speechSynthesis?.cancel(); } else if (curId) playNarration(curId); };
-const unlock = () => { narr.src = SILENT; narr.play().catch(() => {}); window.speechSynthesis?.speak(new SpeechSynthesisUtterance("")); };
+const unlock = () => { narr.src = SILENT; narr.play().catch(() => {}); };
 const lonTxt = (o) => (o.body === "mars" ? `${o.lon.toFixed(3)}°E` : `${Math.abs(o.lon).toFixed(3)}°${o.lon < 0 ? "W" : "E"}`);
 const latTxt = (o) => `${Math.abs(o.lat).toFixed(3)}°${o.lat < 0 ? "S" : "N"}`;
 
@@ -70,7 +61,7 @@ function Chapter({ o, n, first, open }) {
         <button className="guide" onClick={() => open(o)}><span>🛰️</span> Click here for more information!</button>
       </div>
       <Meter id={o.id} />
-      <div className="actions"><button onClick={() => window.dispatchEvent(new CustomEvent("flyto", { detail: o.id }))}>Show on map ↓</button></div>
+      <div className="actions"><button onClick={() => open(o)}>Learn more</button><button onClick={() => window.dispatchEvent(new CustomEvent("flyto", { detail: o.id }))}>Show on map ↓</button></div>
     </section>
   );
 }
@@ -106,21 +97,40 @@ function Rail() {
 }
 
 function Log({ o, close }) {
+  useEffect(() => () => window.speechSynthesis?.cancel(), [o]);
   if (!o) return null;
+  const info = LEARN[o.id];
   const read = () => { close(); setTimeout(() => document.getElementById(`ch-${o.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 60); };
+  const say = () => {
+    const ss = window.speechSynthesis;
+    if (!ss) return;
+    narr.pause(); ss.cancel();
+    const t = [`${o.mission}. ${o.name}.`, `Why was it built? ${info.why}`, `What did it find? ${info.found.join(" ")}`,
+      `Timeline. ${info.time.map(([d, e]) => `${d}: ${e}.`).join(" ")}`, `What happened to it? ${info.after}`].join(" ");
+    const u = new SpeechSynthesisUtterance(t); u.lang = "en-US"; u.rate = 0.95; ss.speak(u);
+  };
   return (
-    <div className="modal" role="dialog" aria-modal="true" aria-label="NASA data" onClick={close}>
+    <div className="modal" role="dialog" aria-modal="true" aria-label="Learn more" onClick={close}>
       <div className="card" onClick={(e) => e.stopPropagation()}>
-        <h3>NASA Data 🚀</h3>
+        <h3>Learn more 🚀</h3>
         <h4>{o.mission}: {o.name}</h4>
+        {info && <button className="say" onClick={say}>🔊 Read this to me</button>}
+        {info && (
+          <>
+            <h5>🎯 Why was it built?</h5><p>{info.why}</p>
+            <h5>🔎 What did it find?</h5><ul>{info.found.map((f) => <li key={f}>{f}</li>)}</ul>
+            <h5>🗓 Timeline</h5><ol className="tl">{info.time.map(([d, e]) => <li key={d + e}><b>{d}</b>{e}</li>)}</ol>
+            <h5>🛰 What happened to it?</h5><p>{info.after}</p>
+          </>
+        )}
+        <h5>📍 Where is it?</h5>
         <dl>
           <dt>Location</dt><dd>{latTxt(o)}, {lonTxt(o)} (approx.)</dd>
           <dt>Left behind</dt><dd>{o.left}</dd>
           <dt>Last contact</dt><dd>{o.last}</dd>
         </dl>
-        <p>{o.science}</p>
         <audio controls onPlay={() => narr.pause()} src={`/audio/${o.id}.mp3`} onError={(e) => (e.currentTarget.style.display = "none")} />
-        <p className="cite">Source: <a href={o.src} target="_blank" rel="noreferrer">{o.dataset}</a></p>
+        <p className="cite">Source: <a href={o.src} target="_blank" rel="noreferrer">{o.dataset}</a> and NASA mission pages</p>
         <button onClick={close}>Close and Continue Story</button>
         <button className="alt" onClick={read}>Read this chapter</button>
       </div>
@@ -211,8 +221,16 @@ function MapExplorer({ open }) {
 export default function App() {
   const [sel, setSel] = useState(null);
   const [sound, setS] = useState(true);
-  const [hint, setHint] = useState(false);
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    history.scrollRestoration = "manual";
+    window.scrollTo(0, 0);
+  }, []);
+  useEffect(() => { document.documentElement.style.overflow = entered ? "" : "hidden"; }, [entered]);
   const start = (on) => {
+    document.documentElement.style.overflow = "";
+    setEntered(true);
+    setTimeout(() => ScrollTrigger.refresh(), 60);
     if (on) unlock();
     setSound(on); setS(on);
     document.getElementById("ch-apollo11")?.scrollIntoView({ behavior: calm() ? "auto" : "smooth" });
@@ -220,24 +238,21 @@ export default function App() {
   useEffect(() => {
     const k = (e) => e.key === "Escape" && setSel(null);
     window.addEventListener("keydown", k);
-    const blocked = () => setHint(true);
-    const resume = () => { setHint(false); resumeBlocked(); };
-    window.addEventListener("narr-blocked", blocked);
+    const resume = () => resumeBlocked();
     window.addEventListener("pointerup", resume);
     window.addEventListener("keydown", resume);
     if (!calm()) gsap.from(".finale p", { opacity: 0, y: 30, stagger: 0.6, duration: 1, scrollTrigger: { trigger: ".finale", start: "top 60%" } });
-    return () => { window.removeEventListener("keydown", k); window.removeEventListener("narr-blocked", blocked); window.removeEventListener("pointerup", resume); window.removeEventListener("keydown", resume); };
+    return () => { window.removeEventListener("keydown", k); window.removeEventListener("pointerup", resume); window.removeEventListener("keydown", resume); };
   }, []);
   return (
     <>
-      <Rail />
-      {hint && <div className="hint-toast">🔊 Tap or press any key to hear the narration</div>}
-      <button className="sound" aria-pressed={sound} aria-label={sound ? "Mute narration" : "Play narration"} onClick={() => { if (sound) { setSound(false); setS(false); } else { unlock(); setSound(true); setS(true); } }}>{sound ? "🔊" : "🔇"}</button>
+      {entered && <Rail />}
+      <button className="sound" hidden={!entered} aria-pressed={sound} aria-label={sound ? "Mute narration" : "Play narration"} onClick={() => { if (sound) { setSound(false); setS(false); } else { unlock(); setSound(true); setS(true); } }}>{sound ? "🔊" : "🔇"}</button>
       <section className="hero">
         <h1>Forgotten Missions</h1>
         <p>The machines were left behind. Their stories weren't.</p>
         <div className="start"><button onClick={() => start(true)}>Start with sound 🔊</button><button className="ghost" onClick={() => start(false)}>Start silent</button></div>
-        <span className="hint">or just scroll ↓</span>
+        <span className="hint">Choose one to enter. The story is narrated as you scroll.</span>
       </section>
       {objects.map((o, i) => <Chapter key={o.id} o={o} n={i + 1} first={i === 0 || objects[i - 1].body !== o.body} open={setSel} />)}
       <section className="finale"><p>A story</p><p>The machines were left behind</p><p>Their stories weren't</p></section>

@@ -93,3 +93,14 @@ footer { text-align:center; font-size:.8rem; opacity:.7; padding:2rem 1rem 3rem;
 @media (prefers-reduced-motion:no-preference) { .pin2.on span { animation:ping 1.8s ease-out infinite; } }
 .pin2 em { position:absolute; left:50%; top:100%; transform:translateX(-50%); margin-top:4px; font:normal .7rem var(--mono); color:#fff; background:#000b; padding:2px 6px; border-radius:4px; white-space:nowrap; opacity:0; transition:opacity .2s; pointer-events:none; }
 .pin2:hover em, .pin2.hot em, .pin2.on em, .z2 .pin2 em { opacity:1; }
+.actions { display:flex; gap:.8rem; justify-content:center; flex-wrap:wrap; }
+.card { max-width:640px; }
+.card h5 { margin:1.1rem 0 .3rem; font-size:1.05rem; }
+.card ul { margin:.2rem 0 .5rem; padding-left:1.2rem; }
+.card li { margin-bottom:.25rem; line-height:1.45; }
+.tl { list-style:none; padding:0; border-left:3px solid var(--blue); margin:.4rem 0 .6rem .4rem; }
+.tl li { position:relative; padding:0 0 .6rem .9rem; line-height:1.4; }
+.tl li::before { content:""; position:absolute; left:-9px; top:.3rem; width:11px; height:11px; border-radius:50%; background:var(--ember); }
+.tl b { display:block; font-size:.85rem; color:#0b5da3; }
+.card button.say { float:none; background:var(--blue); margin:.2rem 0; }
+html { scrollbar-gutter:stable; }
